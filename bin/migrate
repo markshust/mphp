@@ -1,0 +1,44 @@
+#!/usr/bin/env php
+<?php
+
+use App\Models\Migration;
+use App\Mysql;
+use DI\ContainerBuilder;
+
+require __DIR__ . '/../vendor/autoload.php';
+
+$containerBuilder = new ContainerBuilder();
+$containerBuilder->addDefinitions(__DIR__ . '/../config/dependencies.php');
+$di = null;
+
+try {
+    $di = $containerBuilder->build();
+} catch (Exception $e) {
+    echo $e->getMessage();
+}
+
+/** @var Migration $migration */
+$migrations = $di->get(Migration::class);
+$appliedMigrations = [];
+
+foreach ($migrations->fetchAll() as $migration) {
+    $appliedMigrations[] = $migration['filename'];
+}
+
+$migrationFiles = glob(__DIR__ . "/../resources/migrations/*.sql", GLOB_BRACE);
+
+foreach ($migrationFiles as $file) {
+    $filename = basename($file, ".php");
+    if (!in_array($filename, $appliedMigrations)) {
+        /** @var Mysql $mysql */
+        $mysql = $di->get(Mysql::class);
+        $mysql->run(file_get_contents($file));
+
+        $mysql->run('INSERT INTO migrations (filename, created_at) VALUES (:filename, :created_at)', [
+            'filename' => $filename,
+            'created_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        echo "$filename migration executed" . PHP_EOL;
+    }
+}
